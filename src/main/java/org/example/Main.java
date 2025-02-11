@@ -107,7 +107,8 @@ public class Main {
     public static void main(String[] args) throws Exception {
         java.security.Security.setProperty("networkaddress.cache.ttl", "-1");
 
-        String token = null, tenant = null, host = null;
+        String token = null, tenant = null, host = null, localDc = "europe-west4";
+        int port = 29099;
         for (int i = 0; i < args.length; i++) {
             switch (args[i]) {
                 case "--host":
@@ -137,27 +138,46 @@ public class Main {
                         Level level = ch.qos.logback.classic.Level.valueOf(args[++i]);
                         ((ch.qos.logback.classic.Logger)logger).setLevel(level);
                     }
+                    break;
+                case "--dc":
+                case "--local-dc": // Fallthrough
+                    if (i + 1 >= args.length) {
+                        throw new IllegalArgumentException("Must provide a DC");
+                    }
+                    localDc = args[++i];
+                    break;
+                case "port":
+                    if (i + 1 >= args.length) {
+                        throw new IllegalArgumentException("Must provide a port");
+                    }
+                    port = Integer.parseInt(args[++i]);
+                    break;
             }
         }
 
         if (host == null || host.isEmpty()) {
-            throw new IllegalArgumentException("Must provide a host");
+            throw new IllegalArgumentException("Invalid host");
         }
 
         if (token == null || token.isEmpty()) {
-            throw new IllegalArgumentException("Must provide a token");
+            throw new IllegalArgumentException("Invalid token");
         }
 
         if (tenant == null || tenant.isEmpty()) {
-            throw new IllegalArgumentException("Must provide a tenant (database ID)");
+            throw new IllegalArgumentException("Invalid tenant (database ID)");
+        }
+
+        if (localDc == null || localDc.isEmpty()) {
+            throw new IllegalArgumentException("Invalid local DC");
         }
 
         try (CqlSession session = new TenantAwareCqlSessionBuilder(tenant)
                 .withConfigLoader(DriverConfigLoader
                         .programmaticBuilder()
-                        .withDuration(DefaultDriverOption.CONNECTION_INIT_QUERY_TIMEOUT, Duration.ofMillis(1000))
+                        .withDuration(DefaultDriverOption.CONNECTION_INIT_QUERY_TIMEOUT, Duration.ofMillis(10000))
+                        .withBoolean(DefaultDriverOption.METADATA_TOKEN_MAP_ENABLED, false)
                         .build())
-                .addContactPoint(new InetSocketAddress(host, 29099))
+                .addContactPoint(new InetSocketAddress(host, port))
                 .withNodeStateListener(new NodeStateListener() {
                     @Override
                     public void onAdd(@NonNull Node node) {
@@ -183,7 +203,7 @@ public class Main {
                     public void close() throws Exception {
                     }
                 })
-                .withLocalDatacenter("europe-west4")
+                .withLocalDatacenter(localDc)
                 .withAuthCredentials("token", token)
                 .build()) {
             System.out.println();
